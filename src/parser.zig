@@ -4,22 +4,41 @@ const std = @import("std");
 
 // we need to have some context thing
 // so a string map that we can give to the template so we can actually do any templating
-const Ctx = struct {};
+const Ctx = struct {
+    pub const Variable = union(enum) {
+        str: []u8,
+        unsigned_int: u32,
+        signed_int: i32,
+        float: f32,
+    };
 
-// dont really know if we should make a small app or something so i could actually do something with this parser thing
-// maby make this into a lib and then make an app with it
+    fn getfromCtx(self: Ctx, name: []u8, buffer: *std.ArrayList(u8)) !void {
+        const a = self.context.get(name);
+        if (a) |value| {
+            switch (value) {
+                .str => |s| try buffer.appendSlice(s),
+                .unsigned_int => |val| try std.fmt.format(buffer.writer(), "{d}", .{val}),
+                .signed_int => |val| try std.fmt.format(buffer.writer(), "{d}", .{val}),
+                .float => |val| try std.fmt.format(buffer.writer(), "{e}", .{val}),
+            }
+        } else {
+            try buffer.appendSlice("{item not found}");
+        }
+    }
 
-// we need a struct or something that would store all of the templates that we can query from the head template
-// maybe a head struct or something
+    context: std.StringArrayHashMap(Variable),
+};
 
 // wip name
 pub const Engine = struct {
     const Self = @This();
     templates: std.StringArrayHashMap(Template),
+    _allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) !Self {
         return Self{
             .templates = std.StringArrayHashMap(Template).init(allocator),
+            ._allocator = allocator,
         };
     }
 
@@ -31,7 +50,8 @@ pub const Engine = struct {
         self.templates.deinit();
     }
 
-    fn getTemplate(self: *Self, template_name: *const []u8) !Template {
+    // template name is filename rn
+    fn getTemplate(self: *Self, template_name: []const u8) !Template {
         const templateQuery = self.templates.get(template_name);
         // if we dont have the template in the templates cache then read it from files
         if (templateQuery) |template| {
@@ -39,14 +59,27 @@ pub const Engine = struct {
         } else {
             // make new template from filename
             // then do the thing we need to do
-            unreachable;
-            // Template.init()
+            std.debug.print("trying to open {s}\n", .{template_name});
+            const file = std.fs.cwd().openFile(template_name, .{}) catch |e|
+                switch (e) {
+                error.FileNotFound => try std.fs.cwd().openFile("html/404.html", .{}),
+                else => return e,
+            };
+            // if file not found need to do something else
+            defer file.close();
+
+            const content = try file.readToEndAlloc(self._allocator, 1024 * 8);
+
+            const template = try Template.init(self._allocator, content);
+            try self.templates.put(template_name, template);
+            return template;
         }
     }
 
-    // caches the templates so it wont read the file more than nececery
-    pub fn renderTemplate(self: *Self, template_name: *const []u8, ctx: Ctx) !std.ArrayList(u8) {
-        return getTemplate(self, template_name).render(ctx);
+    ///caches the templates so it wont read the file more than nececery
+    ///template name is filename and path rn
+    pub fn renderTemplate(self: *Self, template_name: []const u8, ctx: Ctx) !std.ArrayList(u8) {
+        return try (try getTemplate(self, template_name)).render(ctx);
     }
 };
 
@@ -55,6 +88,7 @@ const Part = union(enum) {
     Mutable: []u8, // name of the variable
 };
 
+///
 const Template = struct {
     const Self = @This();
     source: []u8,
@@ -104,6 +138,7 @@ const Template = struct {
             i.* += 1;
         }
         //std.debug.print("afterfind({s})\n", .{self.source[0 .. i.* + 1]});
+
         // i is now the start of }}
         var slice = self.source[sliceStart.* .. i.* + 1];
         // we now need to make the slice and remove the trailing and leading whitespace so we only have the name of the variable
@@ -114,6 +149,7 @@ const Template = struct {
             s_start += 1;
         }
         slice = slice[s_start..slice.len];
+
         //std.debug.print("slice({s})\n", .{slice});
 
         var s_end: usize = 0;
@@ -126,6 +162,7 @@ const Template = struct {
         }
 
         slice = slice[0..s_end];
+
         //std.debug.print("slice after cull({s})\n", .{slice});
 
         const rpart: Part = Part{ .Mutable = slice };
@@ -140,17 +177,16 @@ const Template = struct {
 
     // makes finished product
     pub fn render(self: Self, ctx: Ctx) !std.ArrayList(u8) {
-        _ = ctx; // autofix
-        _ = self; // autofix
-
-        //walk through source cache
-        //make a string that we return
-
-        //std.mem.indexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T)
-        //std.mem.tokenizeSequence(comptime T: type, buffer: []const T, delimiter: []const T)
-        //or other tokenize fn cna
-
-        // if possible use zig std for as many fns
+        var alist = std.ArrayList(u8).init(self._allocator);
+        // i want to memcopy stuff to arraylist so we can remove free the arraylist when we are done
+        // or if possible dont allocate anything
+        for (self.source_cache.items) |item| {
+            switch (item) {
+                .Immutable => |c| try alist.appendSlice(c),
+                .Mutable => |name| try ctx.getfromCtx(name, &alist), // get item from ctx get string from item add to alist
+            }
+        }
+        return alist;
     }
 };
 
@@ -168,10 +204,6 @@ test "Test Template 1" {
 
     //for (template.source_cache.items) |item| { switch (item) { .Immutable => |conten| std.debug.print("immutable:{s}\n", .{conten}), .Mutable => |conten| std.debug.print("mutable:{s}\n", .{conten}), } }
 
-    // 0 =<p>\n
-    // 1 =variabl
-    // 0 =\n</p>
-
     try std.testing.expect(std.mem.eql(u8, "<p>\n", template.source_cache.items[0].Immutable));
     try std.testing.expect(std.mem.eql(u8, "variable", template.source_cache.items[1].Mutable));
     try std.testing.expect(std.mem.eql(u8, "\n</p>", template.source_cache.items[2].Immutable));
@@ -184,7 +216,6 @@ test "Test Template 2" {
     defer file.close();
 
     const content = try file.readToEndAlloc(allocator, 1024 * 8);
-    //defer allocator.free(content);
 
     var template = try Template.init(allocator, content);
     defer template.deinit();

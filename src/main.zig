@@ -1,6 +1,8 @@
 const std = @import("std");
+const parser = @import("parser.zig");
 
 var APP_RUNNING = true;
+var Engine: parser.Engine = undefined;
 
 fn handleServer(server: *std.net.Server) !void {
     var headerBuffer: [1024]u8 = undefined;
@@ -15,9 +17,12 @@ fn handleServer(server: *std.net.Server) !void {
         //std.debug.print("{s}", .{headerBuffer});
         std.debug.print("methos:{s}\n", .{a.head.target});
 
+        const res = try Engine.renderTemplate(a.head.target[1..a.head.target.len], .{ .context = undefined });
+
         // start doing parsing things
         // parser should probably have atleast some testing
-        try a.respond("hello\n", .{});
+
+        try a.respond(res.items, .{});
     }
 }
 
@@ -25,6 +30,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
+    Engine = try parser.Engine.init(allocator);
 
     const ip4 = "192.168.1.107";
     const port = 3000;
