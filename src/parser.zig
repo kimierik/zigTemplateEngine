@@ -57,51 +57,89 @@ const Part = union(enum) {
 
 const Template = struct {
     const Self = @This();
-    source: std.ArrayList(u8),
+    source: []u8,
 
     source_cache: std.ArrayList(Part),
 
-    pub fn init(allocator: std.mem.Allocator, source: std.ArrayList(u8)) !Self {
+    _allocator: std.mem.Allocator,
+
+    /// allocator given must be the same allocator that was used to allocate source
+    pub fn init(allocator: std.mem.Allocator, source: []u8) !Self {
         var tmpl: Template = .{
             .source = source,
             .source_cache = std.ArrayList(Part).init(allocator),
+            ._allocator = allocator,
         };
         var sliceStart: usize = 0;
 
         // make parts from the source
         // read untill {{ that slice is part
         var i: usize = 0;
-        while (i <= tmpl.source.items.len - 1) {
-            const char = tmpl.source.items[i];
-            if (char == '{' and tmpl.source.items[i + 1] == '{') {
-                // make start of the thing
-                try tmpl.source_cache.append(.{ .Immutable = tmpl.source.items[sliceStart .. i - 1] });
-                sliceStart = i + 2;
-                // untill we find }} make the mutable thing and end
-                while (tmpl.source.items[i] != '}' and tmpl.source.items[i + 1] != '}') {
-                    i += 1;
-                }
+        while (i <= tmpl.source.len - 1) {
+            const char = tmpl.source[i];
 
-                // need to remove whitespace from the variable name
-                try tmpl.source_cache.append(.{ .Mutable = tmpl.source.items[sliceStart .. i - 1] });
-                sliceStart = i + 1; // also need to know how mutch to jump
+            if (char == '{' and tmpl.source[i + 1] == '{') {
+                try tmpl.source_cache.append(.{ .Immutable = tmpl.source[sliceStart..i] });
+                try tmpl.source_cache.append(tmpl.parseVarName(&i, &sliceStart));
             }
             // end loop
             i += 1;
         }
 
-        try tmpl.source_cache.append(.{ .Immutable = tmpl.source.items[sliceStart .. i - 1] });
+        // at end we jus make the last immutable
+        try tmpl.source_cache.append(.{ .Immutable = tmpl.source[sliceStart .. i - 1] });
 
         return tmpl;
     }
 
-    fn deinit(self: *Self) void {
+    // gets slice from source that includes the name within {{ }}
+    // if we improve this later we could make this into an expression not a simple var name
+    fn parseVarName(self: *Self, i: *usize, sliceStart: *usize) Part {
+        // skip over {{
+        sliceStart.* = i.* + 2;
+
+        // untill we find }} make the mutable thing and end
+        //
+        while (self.source[i.*] != '}' and self.source[i.* + 1] != '}') {
+            i.* += 1;
+        }
+        //std.debug.print("afterfind({s})\n", .{self.source[0 .. i.* + 1]});
+        // i is now the start of }}
+        var slice = self.source[sliceStart.* .. i.* + 1];
+        // we now need to make the slice and remove the trailing and leading whitespace so we only have the name of the variable
+
+        // i quess walk through it and get indexes of the things....
+        var s_start: usize = 0;
+        while (slice[s_start] == ' ') {
+            s_start += 1;
+        }
+        slice = slice[s_start..slice.len];
+        //std.debug.print("slice({s})\n", .{slice});
+
+        var s_end: usize = 0;
+        while (s_end < slice.len and
+            slice[s_end] != ' ' and
+            slice[s_end] != '\t' and
+            slice[s_end] != '\n')
+        {
+            s_end += 1;
+        }
+
+        slice = slice[0..s_end];
+        //std.debug.print("slice after cull({s})\n", .{slice});
+
+        const rpart: Part = Part{ .Mutable = slice };
+        sliceStart.* = i.* + 3;
+        return rpart;
+    }
+
+    pub fn deinit(self: *Self) void {
         self.source_cache.deinit();
-        self.source.deinit();
+        self._allocator.free(self.source);
     }
 
     // makes finished product
-    fn render(self: Self, ctx: Ctx) !std.ArrayList(u8) {
+    pub fn render(self: Self, ctx: Ctx) !std.ArrayList(u8) {
         _ = ctx; // autofix
         _ = self; // autofix
 
@@ -116,25 +154,63 @@ const Template = struct {
     }
 };
 
-test "Template parser" {
+test "Test Template 1" {
     const allocator = std.testing.allocator;
 
     const file = try std.fs.cwd().openFile("testTemplates/test1.html", .{});
     defer file.close();
 
     const content = try file.readToEndAlloc(allocator, 1024 * 8);
-    defer allocator.free(content);
+    //defer allocator.free(content);
 
-    var items = std.ArrayList(u8).init(allocator);
-    try items.appendUnalignedSlice(content);
-
-    var template = try Template.init(allocator, items);
+    var template = try Template.init(allocator, content);
     defer template.deinit();
 
-    for (template.source_cache.items) |item| {
-        switch (item) {
-            .Immutable => |conten| std.debug.print("immutable:{s}\n", .{conten}),
-            .Mutable => |conten| std.debug.print("mutable:{s}\n", .{conten}),
-        }
-    }
+    //for (template.source_cache.items) |item| { switch (item) { .Immutable => |conten| std.debug.print("immutable:{s}\n", .{conten}), .Mutable => |conten| std.debug.print("mutable:{s}\n", .{conten}), } }
+
+    // 0 =<p>\n
+    // 1 =variabl
+    // 0 =\n</p>
+
+    try std.testing.expect(std.mem.eql(u8, "<p>\n", template.source_cache.items[0].Immutable));
+    try std.testing.expect(std.mem.eql(u8, "variable", template.source_cache.items[1].Mutable));
+    try std.testing.expect(std.mem.eql(u8, "\n</p>", template.source_cache.items[2].Immutable));
+}
+
+test "Test Template 2" {
+    const allocator = std.testing.allocator;
+
+    const file = try std.fs.cwd().openFile("testTemplates/test2.html", .{});
+    defer file.close();
+
+    const content = try file.readToEndAlloc(allocator, 1024 * 8);
+    //defer allocator.free(content);
+
+    var template = try Template.init(allocator, content);
+    defer template.deinit();
+
+    //    for (template.source_cache.items) |item| { switch (item) { .Immutable => |conten| std.debug.print("immutable:{s}\n", .{conten}), .Mutable => |conten| std.debug.print("mutable:{s}\n", .{conten}), } }
+
+    const first =
+        \\<!DOCTYPE html>
+        \\<html lang="en">
+        \\<head>
+        \\    <meta charset="UTF-8">
+        \\    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        \\    <title>Document</title>
+        \\</head>
+        \\<body>
+        \\    <h1>web page</h1>
+        \\    <p> content :
+    ;
+
+    const last =
+        \\</p>
+        \\</body>
+        \\</html>
+    ;
+
+    try std.testing.expect(std.mem.eql(u8, first, template.source_cache.items[0].Immutable));
+    try std.testing.expect(std.mem.eql(u8, "content", template.source_cache.items[1].Mutable));
+    try std.testing.expect(std.mem.eql(u8, last, template.source_cache.items[2].Immutable));
 }
