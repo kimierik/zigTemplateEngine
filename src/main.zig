@@ -4,7 +4,20 @@ const parser = @import("parser.zig");
 var APP_RUNNING = true;
 var Engine: parser.Engine = undefined;
 
-fn handleServer(server: *std.net.Server) !void {
+const HandlerSignature = *const fn (*std.http.Server.Request) anyerror!void;
+
+const HttpContext = struct {
+    routingTable: std.StringArrayHashMap(*const fn (*std.http.Server.Request) anyerror!void),
+};
+
+fn genericHandler(req: *std.http.Server.Request) !void {
+    //const res = try Engine.renderTemplate(req.head.target[1..req.head.target.len], .{ .context = undefined });
+    const res = try Engine.renderTemplate("testTemplates/test2.html", .{ .context = undefined });
+    defer res.deinit();
+    try req.respond(res.items, .{});
+}
+
+fn handleServer(server: *std.net.Server, httpctx: *HttpContext) !void {
     var headerBuffer: [1024]u8 = undefined;
 
     while (true) {
@@ -15,14 +28,15 @@ fn handleServer(server: *std.net.Server) !void {
 
         var a = try httpServer.receiveHead();
         //std.debug.print("{s}", .{headerBuffer});
-        std.debug.print("methos:{s}\n", .{a.head.target});
-
-        const res = try Engine.renderTemplate(a.head.target[1..a.head.target.len], .{ .context = undefined });
-
-        // start doing parsing things
-        // parser should probably have atleast some testing
-
-        try a.respond(res.items, .{});
+        //.debug.print("methos:{s}\n", .{a.head.target});
+        const handle = httpctx.routingTable.get(a.head.target);
+        if (handle) |Handle| {
+            try Handle(&a);
+        } else {
+            //const f = try std.fs.cwd().openFile("html/404.html", .{});
+            //defer f.close();
+            try a.respond("404 page not found", .{});
+        }
     }
 }
 
@@ -30,7 +44,14 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
+
+    // template engine
     Engine = try parser.Engine.init(allocator);
+    defer Engine.deinit();
+
+    var ctx = HttpContext{ .routingTable = std.StringArrayHashMap(*const fn (*std.http.Server.Request) anyerror!void).init(allocator) };
+    try ctx.routingTable.put("/home", genericHandler);
+    defer ctx.routingTable.deinit();
 
     const ip4 = "192.168.1.107";
     const port = 3000;
@@ -42,7 +63,7 @@ pub fn main() !void {
 
     std.debug.print("server has been started {s}:{d}\n", .{ ip4, port });
 
-    const serverThread = try std.Thread.spawn(.{ .allocator = allocator }, handleServer, .{&server});
+    const serverThread = try std.Thread.spawn(.{ .allocator = allocator }, handleServer, .{ &server, &ctx });
     defer serverThread.detach();
 
     // main thread rn listenes stdin for input things

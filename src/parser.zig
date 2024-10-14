@@ -43,9 +43,10 @@ pub const Engine = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        const templates = self.templates.iterator();
-        for (templates.next()) |value| {
-            value.source.deinit();
+        var templates = self.templates.iterator();
+        while (templates.next()) |value| {
+            value.value_ptr.source_cache.deinit();
+            value.value_ptr._allocator.free(value.value_ptr.source);
         }
         self.templates.deinit();
     }
@@ -190,6 +191,7 @@ const Template = struct {
     }
 };
 
+// tests
 test "Test Template 1" {
     const allocator = std.testing.allocator;
 
