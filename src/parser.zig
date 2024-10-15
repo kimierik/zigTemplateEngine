@@ -4,9 +4,9 @@ const std = @import("std");
 
 // we need to have some context thing
 // so a string map that we can give to the template so we can actually do any templating
-const Ctx = struct {
+pub const Ctx = struct {
     pub const Variable = union(enum) {
-        str: []u8,
+        str: []const u8,
         unsigned_int: u32,
         signed_int: i32,
         float: f32,

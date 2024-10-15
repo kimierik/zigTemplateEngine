@@ -7,16 +7,24 @@ var Engine: parser.Engine = undefined;
 const HandlerSignature = *const fn (*std.http.Server.Request) anyerror!void;
 
 const HttpContext = struct {
-    routingTable: std.StringArrayHashMap(*const fn (*std.http.Server.Request) anyerror!void),
+    routingTable: std.StringArrayHashMap(HandlerSignature),
 };
 
 fn genericHandler(req: *std.http.Server.Request) !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    defer _ = gpa.deinit();
     //const res = try Engine.renderTemplate(req.head.target[1..req.head.target.len], .{ .context = undefined });
-    const res = try Engine.renderTemplate("testTemplates/test2.html", .{ .context = undefined });
+    var c: parser.Ctx = .{ .context = std.StringArrayHashMap(parser.Ctx.Variable).init(allocator) };
+    defer c.context.deinit();
+    try c.context.put("content", .{ .str = "item from ctx" });
+
+    const res = try Engine.renderTemplate("testTemplates/test2.html", c);
     defer res.deinit();
     try req.respond(res.items, .{});
 }
 
+/// handles accepting http requests to server and routing them to the propper response handler
 fn handleServer(server: *std.net.Server, httpctx: *HttpContext) !void {
     var headerBuffer: [1024]u8 = undefined;
 
@@ -27,8 +35,10 @@ fn handleServer(server: *std.net.Server, httpctx: *HttpContext) !void {
         var httpServer = std.http.Server.init(connection, &headerBuffer);
 
         var a = try httpServer.receiveHead();
-        //std.debug.print("{s}", .{headerBuffer});
-        //.debug.print("methos:{s}\n", .{a.head.target});
+
+        // TODO parse :id style of syntax
+        // propperly parse the url and give to handler and also give string hashmap with strings?
+
         const handle = httpctx.routingTable.get(a.head.target);
         if (handle) |Handle| {
             try Handle(&a);
@@ -49,9 +59,11 @@ pub fn main() !void {
     Engine = try parser.Engine.init(allocator);
     defer Engine.deinit();
 
-    var ctx = HttpContext{ .routingTable = std.StringArrayHashMap(*const fn (*std.http.Server.Request) anyerror!void).init(allocator) };
-    try ctx.routingTable.put("/home", genericHandler);
+    var ctx = HttpContext{ .routingTable = std.StringArrayHashMap(HandlerSignature).init(allocator) };
     defer ctx.routingTable.deinit();
+
+    // init routing table
+    try ctx.routingTable.put("/home", genericHandler);
 
     const ip4 = "192.168.1.107";
     const port = 3000;
