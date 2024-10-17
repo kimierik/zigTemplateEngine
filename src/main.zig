@@ -4,16 +4,13 @@ const parser = @import("parser.zig");
 var APP_RUNNING = true;
 var Engine: parser.Engine = undefined;
 
-const HandlerSignature = *const fn (*std.http.Server.Request) anyerror!void;
+const HandlerSignature = *const fn (*std.http.Server.Request, std.mem.Allocator) anyerror!void;
 
 const HttpContext = struct {
     routingTable: std.StringArrayHashMap(HandlerSignature),
 };
 
-fn genericHandler(req: *std.http.Server.Request) !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
-    defer _ = gpa.deinit();
+fn genericHandler(req: *std.http.Server.Request, allocator: std.mem.Allocator) !void {
     //const res = try Engine.renderTemplate(req.head.target[1..req.head.target.len], .{ .context = undefined });
     var c: parser.Ctx = .{ .context = std.StringArrayHashMap(parser.Ctx.Variable).init(allocator) };
     defer c.context.deinit();
@@ -24,9 +21,35 @@ fn genericHandler(req: *std.http.Server.Request) !void {
     try req.respond(res.items, .{});
 }
 
+/// get query from target string
+fn getSlice(target: *const []u8, query: *const []u8) ?*const []u8 {
+    const indexq = std.mem.indexOf(u8, target, query);
+    if (indexq) |index| {
+        _ = index; // autofix
+
+        //return fron index to & or end of string
+
+    } else {
+        return null;
+    }
+}
+
+/// remove get query from target
+fn getTargetSlice(target: *const []u8) *const []u8 {
+    for (0..target.len) |i| {
+        if (target[i] == '?') {
+            return target[0..i];
+        }
+    }
+    return target;
+}
+
 /// handles accepting http requests to server and routing them to the propper response handler
 fn handleServer(server: *std.net.Server, httpctx: *HttpContext) !void {
     var headerBuffer: [1024]u8 = undefined;
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    const allocator = arena.allocator();
 
     while (true) {
         var connection = try server.accept();
@@ -34,14 +57,17 @@ fn handleServer(server: *std.net.Server, httpctx: *HttpContext) !void {
 
         var httpServer = std.http.Server.init(connection, &headerBuffer);
 
+        // this cannot be a try statement needs to be case and send user 400 to client
         var a = try httpServer.receiveHead();
+        // write 400 to a.stream if this is fucked
 
-        // TODO parse :id style of syntax
-        // propperly parse the url and give to handler and also give string hashmap with strings?
+        std.debug.print("target:{s}\n", .{a.head.target});
 
-        const handle = httpctx.routingTable.get(a.head.target);
+        const target = getTargetSlice(a.head.target);
+        const handle = httpctx.routingTable.get(target);
         if (handle) |Handle| {
-            try Handle(&a);
+            try Handle(&a, allocator);
+            arena.reset(.free_all);
         } else {
             //const f = try std.fs.cwd().openFile("html/404.html", .{});
             //defer f.close();
