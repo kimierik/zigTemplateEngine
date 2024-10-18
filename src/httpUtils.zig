@@ -3,6 +3,14 @@ const parser = @import("template.zig");
 
 extern var Engine: *parser.Engine;
 
+pub fn homeRedirectHandler(req: *std.http.Server.Request, allocator: std.mem.Allocator) !void {
+    _ = allocator;
+    const responseHead: std.http.Header = .{ .name = "Location", .value = "/home" };
+    const rlist: [1]std.http.Header = .{responseHead};
+
+    try req.respond("", .{ .extra_headers = &rlist, .status = .permanent_redirect });
+}
+
 pub fn genericHandler(req: *std.http.Server.Request, allocator: std.mem.Allocator) !void {
     //const res = try Engine.renderTemplate(req.head.target[1..req.head.target.len], .{ .context = undefined });
     var c: parser.Ctx = .{ .context = std.StringArrayHashMap(parser.Ctx.Variable).init(allocator) };

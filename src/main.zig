@@ -61,6 +61,7 @@ pub fn main() !void {
 
     // init routing table
     try router.routingTable.put("/home", httpUtils.genericHandler);
+    try router.routingTable.put("/", httpUtils.homeRedirectHandler);
 
     const ip4 = "192.168.1.107";
     const port = 3000;
