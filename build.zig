@@ -26,7 +26,7 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 
     const ParserTest = b.addTest(.{
-        .root_source_file = b.path("src/parser.zig"),
+        .root_source_file = b.path("src/template.zig"),
         .error_tracing = true,
         .target = target,
         .optimize = optimize,

@@ -1,51 +1,20 @@
 const std = @import("std");
-const parser = @import("parser.zig");
+// rename
+const parser = @import("template.zig");
+const httpUtils = @import("httpUtils.zig");
 
 var APP_RUNNING = true;
-var Engine: parser.Engine = undefined;
+
+export var Engine: *parser.Engine = undefined;
 
 const HandlerSignature = *const fn (*std.http.Server.Request, std.mem.Allocator) anyerror!void;
 
-const HttpContext = struct {
+const Router = struct {
     routingTable: std.StringArrayHashMap(HandlerSignature),
 };
 
-fn genericHandler(req: *std.http.Server.Request, allocator: std.mem.Allocator) !void {
-    //const res = try Engine.renderTemplate(req.head.target[1..req.head.target.len], .{ .context = undefined });
-    var c: parser.Ctx = .{ .context = std.StringArrayHashMap(parser.Ctx.Variable).init(allocator) };
-    defer c.context.deinit();
-    try c.context.put("content", .{ .str = "item from ctx" });
-
-    const res = try Engine.renderTemplate("testTemplates/test2.html", c);
-    defer res.deinit();
-    try req.respond(res.items, .{});
-}
-
-/// get query from target string
-fn getSlice(target: *const []u8, query: *const []u8) ?*const []u8 {
-    const indexq = std.mem.indexOf(u8, target, query);
-    if (indexq) |index| {
-        _ = index; // autofix
-
-        //return fron index to & or end of string
-
-    } else {
-        return null;
-    }
-}
-
-/// remove get query from target
-fn getTargetSlice(target: *const []u8) *const []u8 {
-    for (0..target.len) |i| {
-        if (target[i] == '?') {
-            return target[0..i];
-        }
-    }
-    return target;
-}
-
 /// handles accepting http requests to server and routing them to the propper response handler
-fn handleServer(server: *std.net.Server, httpctx: *HttpContext) !void {
+fn handleServer(server: *std.net.Server, router: *Router) !void {
     var headerBuffer: [1024]u8 = undefined;
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -63,11 +32,11 @@ fn handleServer(server: *std.net.Server, httpctx: *HttpContext) !void {
 
         std.debug.print("target:{s}\n", .{a.head.target});
 
-        const target = getTargetSlice(a.head.target);
-        const handle = httpctx.routingTable.get(target);
+        const target = httpUtils.getTargetSlice(a.head.target);
+        const handle = router.routingTable.get(target);
         if (handle) |Handle| {
             try Handle(&a, allocator);
-            arena.reset(.free_all);
+            _ = arena.reset(.free_all);
         } else {
             //const f = try std.fs.cwd().openFile("html/404.html", .{});
             //defer f.close();
@@ -82,14 +51,16 @@ pub fn main() !void {
     defer _ = gpa.deinit();
 
     // template engine
-    Engine = try parser.Engine.init(allocator);
+    Engine = try allocator.create(parser.Engine);
+    Engine.* = try parser.Engine.init(allocator);
+    defer allocator.destroy(Engine);
     defer Engine.deinit();
 
-    var ctx = HttpContext{ .routingTable = std.StringArrayHashMap(HandlerSignature).init(allocator) };
-    defer ctx.routingTable.deinit();
+    var router = Router{ .routingTable = std.StringArrayHashMap(HandlerSignature).init(allocator) };
+    defer router.routingTable.deinit();
 
     // init routing table
-    try ctx.routingTable.put("/home", genericHandler);
+    try router.routingTable.put("/home", httpUtils.genericHandler);
 
     const ip4 = "192.168.1.107";
     const port = 3000;
@@ -101,7 +72,7 @@ pub fn main() !void {
 
     std.debug.print("server has been started {s}:{d}\n", .{ ip4, port });
 
-    const serverThread = try std.Thread.spawn(.{ .allocator = allocator }, handleServer, .{ &server, &ctx });
+    const serverThread = try std.Thread.spawn(.{ .allocator = allocator }, handleServer, .{ &server, &router });
     defer serverThread.detach();
 
     // main thread rn listenes stdin for input things
