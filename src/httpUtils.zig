@@ -23,10 +23,32 @@ pub fn genericHandler(req: *std.http.Server.Request, allocator: std.mem.Allocato
 }
 
 /// get query from target string
-fn getSlice(target: []const u8, query: []const u8) ?[]const u8 {
-    const indexq = std.mem.indexOf(u8, target, query);
-    if (indexq) |index| {
-        _ = index; // autofix
+fn getQueryValue(target: []const u8, query: []const u8) ?[]const u8 {
+    if (query.len == 0) {
+        return null;
+    }
+    // no query that is larger than 255
+    if (query.len >= 256) {
+        return null;
+    }
+    // add '=' at the edn of query so we dont find a substring if a name
+    var qs: [256]u8 = [_]u8{0} ** 256;
+    std.mem.copyForwards(u8, &qs, query);
+    qs[query.len] = '=';
+    const qslice = qs[0 .. query.len + 1];
+
+    const indexq = std.mem.indexOf(u8, target, qslice);
+
+    if (indexq) |i| {
+        const index = i + query.len + 1;
+
+        // find next &. if not found then end of string
+        const end = std.mem.indexOfScalar(u8, target[index..target.len], '&');
+        if (end) |end_index| {
+            return target[index .. end_index + index];
+        } else {
+            return target[index..target.len];
+        }
 
         //return fron index to & or end of string
 
@@ -34,9 +56,16 @@ fn getSlice(target: []const u8, query: []const u8) ?[]const u8 {
         return null;
     }
 }
+test getQueryValue {
+    const targ = "end?valie1=asdfgh&value2=42069";
+    try std.testing.expect(std.mem.eql(u8, getQueryValue(targ, "valie1").?, "asdfgh"));
+    try std.testing.expect(std.mem.eql(u8, getQueryValue(targ, "value2").?, "42069"));
+}
 
 /// remove get query from target
 pub fn getTargetSlice(target: []const u8) []const u8 {
+    // index of scalar can be used from std.mem
+
     for (0..target.len) |i| {
         if (target[i] == '?') {
             return target[0..i];

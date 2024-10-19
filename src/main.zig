@@ -34,6 +34,7 @@ fn handleServer(server: *std.net.Server, router: *Router) !void {
 
         const target = httpUtils.getTargetSlice(a.head.target);
         const handle = router.routingTable.get(target);
+
         if (handle) |Handle| {
             try Handle(&a, allocator);
             _ = arena.reset(.free_all);

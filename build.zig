@@ -31,9 +31,18 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const utilsTest = b.addTest(.{
+        .root_source_file = b.path("src/httpUtils.zig"),
+        .error_tracing = true,
+        .target = target,
+        .optimize = optimize,
+    });
+
     const r_parserTest = b.addRunArtifact(ParserTest);
+    const r_utilsTest = b.addRunArtifact(utilsTest);
 
     const test_step = b.step("test", "run tests");
 
     test_step.dependOn(&r_parserTest.step);
+    test_step.dependOn(&r_utilsTest.step);
 }
