@@ -30,7 +30,7 @@ fn handleServer(server: *std.net.Server, router: *Router) !void {
         var a = try httpServer.receiveHead();
         // write 400 to a.stream if this is fucked
 
-        std.debug.print("target:{s}\n", .{a.head.target});
+        //std.debug.print("target:{s}\n", .{a.head.target});
 
         const target = httpUtils.getTargetSlice(a.head.target);
         const handle = router.routingTable.get(target);
@@ -64,7 +64,7 @@ pub fn main() !void {
     try router.routingTable.put("/home", httpUtils.genericHandler);
     try router.routingTable.put("/", httpUtils.homeRedirectHandler);
 
-    const ip4 = "192.168.1.107";
+    const ip4 = "127.0.0.1";
     const port = 3000;
     const address: std.net.Address = try std.net.Address.parseIp4(ip4, port);
 
@@ -88,6 +88,10 @@ pub fn main() !void {
         if (std.mem.eql(u8, inputSlice, "exit\n")) {
             APP_RUNNING = false;
             std.debug.print("Stopping server\n", .{});
+        }
+        if (std.mem.eql(u8, inputSlice, "refresh\n")) {
+            Engine.clearTemplates();
+            std.debug.print("delething html cache\n", .{});
         }
     }
 }

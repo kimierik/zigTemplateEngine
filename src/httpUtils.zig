@@ -15,9 +15,15 @@ pub fn genericHandler(req: *std.http.Server.Request, allocator: std.mem.Allocato
     //const res = try Engine.renderTemplate(req.head.target[1..req.head.target.len], .{ .context = undefined });
     var c: parser.Ctx = .{ .context = std.StringArrayHashMap(parser.Ctx.Variable).init(allocator) };
     defer c.context.deinit();
-    try c.context.put("content", .{ .str = "item from ctx" });
+    const quer = getQueryValue(req.head.target, "content");
 
-    const res = try Engine.renderTemplate("testTemplates/test2.html", c);
+    if (quer) |value| {
+        try c.context.put("content", .{ .str = value });
+    } else {
+        try c.context.put("content", .{ .str = "no query" });
+    }
+
+    const res = try Engine.renderTemplate("testTemplates/test3.html", c);
     defer res.deinit();
     try req.respond(res.items, .{});
 }
@@ -56,10 +62,16 @@ fn getQueryValue(target: []const u8, query: []const u8) ?[]const u8 {
         return null;
     }
 }
+
 test getQueryValue {
     const targ = "end?valie1=asdfgh&value2=42069";
     try std.testing.expect(std.mem.eql(u8, getQueryValue(targ, "valie1").?, "asdfgh"));
     try std.testing.expect(std.mem.eql(u8, getQueryValue(targ, "value2").?, "42069"));
+}
+
+// parses excapes from string
+pub fn parseQueryValue(str: []const u8) []const u8 {
+    _ = str; // autofix
 }
 
 /// remove get query from target

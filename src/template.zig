@@ -45,10 +45,19 @@ pub const Engine = struct {
     pub fn deinit(self: *Self) void {
         var templates = self.templates.iterator();
         while (templates.next()) |value| {
-            value.value_ptr.source_cache.deinit();
-            value.value_ptr._allocator.free(value.value_ptr.source);
+            value.value_ptr.deinit();
         }
         self.templates.deinit();
+    }
+
+    pub fn clearTemplates(self: *Self) void {
+        var templates = self.templates.iterator();
+        while (templates.next()) |value| {
+            value.value_ptr.deinit();
+        }
+        for (0..self.templates.count()) |_| {
+            _ = self.templates.pop();
+        }
     }
 
     // template name is filename rn
