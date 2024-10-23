@@ -69,9 +69,78 @@ test getQueryValue {
     try std.testing.expect(std.mem.eql(u8, getQueryValue(targ, "value2").?, "42069"));
 }
 
-// parses excapes from string
-pub fn parseQueryValue(str: []const u8) []const u8 {
-    _ = str; // autofix
+/// gets corresponding character from excape
+fn getExcapeChar(excapeSlice: []const u8) !u8 {
+    // this should be some sort of a map not if thir or that
+    if (std.mem.eql(u8, excapeSlice, "20"))
+        return ' ';
+    if (std.mem.eql(u8, excapeSlice, "3C"))
+        return '<';
+    if (std.mem.eql(u8, excapeSlice, "3E"))
+        return '>';
+    if (std.mem.eql(u8, excapeSlice, "23"))
+        return '#';
+    if (std.mem.eql(u8, excapeSlice, "25"))
+        return '%';
+    if (std.mem.eql(u8, excapeSlice, "2B"))
+        return '+';
+    if (std.mem.eql(u8, excapeSlice, "7B"))
+        return '{';
+    if (std.mem.eql(u8, excapeSlice, "7D"))
+        return '}';
+    if (std.mem.eql(u8, excapeSlice, "7C"))
+        return '|';
+    if (std.mem.eql(u8, excapeSlice, "5C"))
+        return '\\';
+    if (std.mem.eql(u8, excapeSlice, "5E"))
+        return '^';
+    if (std.mem.eql(u8, excapeSlice, "7E"))
+        return '~';
+    if (std.mem.eql(u8, excapeSlice, "5B"))
+        return '[';
+    if (std.mem.eql(u8, excapeSlice, "5D"))
+        return ']';
+    if (std.mem.eql(u8, excapeSlice, "60"))
+        return '‘';
+    if (std.mem.eql(u8, excapeSlice, "3B"))
+        return ';';
+    if (std.mem.eql(u8, excapeSlice, "2F"))
+        return '/';
+    if (std.mem.eql(u8, excapeSlice, "3F"))
+        return '?';
+    if (std.mem.eql(u8, excapeSlice, "3A"))
+        return ':';
+    if (std.mem.eql(u8, excapeSlice, "40"))
+        return '@';
+    if (std.mem.eql(u8, excapeSlice, "3D"))
+        return '=';
+    if (std.mem.eql(u8, excapeSlice, "26"))
+        return '&';
+    if (std.mem.eql(u8, excapeSlice, "24"))
+        return '$';
+
+    return error.InvalidExcape;
+}
+
+// https://docs.microfocus.com/OMi/10.62/Content/OMi/ExtGuide/ExtApps/URL_encoding.htm
+/// parses excapes from string
+/// caller owns return
+pub fn parseQueryValue(str: []const u8, allocator: std.mem.Allocator) ?std.ArrayList(u8) {
+    var returnlist = std.ArrayList(u8).init(allocator);
+    errdefer returnlist.deinit();
+
+    var i: usize = 0;
+    while (i < str.len) {
+        const char = str[i];
+        if (char == '%' or char == '$') {
+            const excapeSlice = str[i - 1 .. i + 3];
+            const exchar = try getExcapeChar(excapeSlice);
+            try returnlist.append(exchar);
+            i += 3;
+        } else {
+            try returnlist.append(char);
+        }
+    }
 }
 
 /// remove get query from target
