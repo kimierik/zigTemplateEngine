@@ -101,7 +101,7 @@ fn getExcapeChar(excapeSlice: []const u8) !u8 {
     if (std.mem.eql(u8, excapeSlice, "5D"))
         return ']';
     if (std.mem.eql(u8, excapeSlice, "60"))
-        return '‘';
+        return '\'';
     if (std.mem.eql(u8, excapeSlice, "3B"))
         return ';';
     if (std.mem.eql(u8, excapeSlice, "2F"))
@@ -125,7 +125,7 @@ fn getExcapeChar(excapeSlice: []const u8) !u8 {
 // https://docs.microfocus.com/OMi/10.62/Content/OMi/ExtGuide/ExtApps/URL_encoding.htm
 /// parses excapes from string
 /// caller owns return
-pub fn parseQueryValue(str: []const u8, allocator: std.mem.Allocator) ?std.ArrayList(u8) {
+pub fn parseQueryValue(str: []const u8, allocator: std.mem.Allocator) !std.ArrayList(u8) {
     var returnlist = std.ArrayList(u8).init(allocator);
     errdefer returnlist.deinit();
 
@@ -133,14 +133,31 @@ pub fn parseQueryValue(str: []const u8, allocator: std.mem.Allocator) ?std.Array
     while (i < str.len) {
         const char = str[i];
         if (char == '%' or char == '$') {
-            const excapeSlice = str[i - 1 .. i + 3];
+            const excapeSlice = str[i + 1 .. i + 3];
             const exchar = try getExcapeChar(excapeSlice);
             try returnlist.append(exchar);
             i += 3;
         } else {
             try returnlist.append(char);
+            i += 1;
         }
     }
+    return returnlist;
+}
+
+test parseQueryValue {
+    // TODO implement
+
+    const targ = "end?valie1=asdfgh%20asdf&value2=%2442069";
+    const fst = try parseQueryValue(getQueryValue(targ, "valie1").?, std.testing.allocator);
+    defer fst.deinit();
+    //std.debug.print("fst:{s}\n", .{fst.items});
+
+    const snd = try parseQueryValue(getQueryValue(targ, "value2").?, std.testing.allocator);
+    defer snd.deinit();
+    //std.debug.print("snd:{s}\n", .{snd.items});
+    try std.testing.expect(std.mem.eql(u8, fst.items, "asdfgh asdf"));
+    try std.testing.expect(std.mem.eql(u8, snd.items, "$42069"));
 }
 
 /// remove get query from target
